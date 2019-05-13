@@ -34,9 +34,10 @@ What are the consequences of using a meta-analytic prior?
   
   How does the use of meta-analytic priors you suggest reflect the skeptical and cumulative nature of science?
 
-### Step by step suggestions
+## Step by step suggestions
 
-Step 1: Reproduce the meta-analysis of pitch sd from previous studies of voice in schizophrenia
+
+##Step 1: Reproduce the meta-analysis of pitch sd from previous studies of voice in schizophrenia
 - the data is available as Assignment4MetaData.xlsx
 
 - Effect size (cohen's d), sd and variance are already calculated (you're welcome!)
@@ -76,9 +77,7 @@ ggplot(meta, aes(x=MeanES, y=StudyRef)) +
 ```
 
 
-
-
-```{r}
+```{r + State of the art}
 
 #state of the art 
 #Get popoulation priors
@@ -111,9 +110,10 @@ pairs(meta_mod)
 
 ```
 
-Step 2: Prepare the pitch SD data from last year
+##Step 2: Prepare the pitch SD data from last year
 - the data is available as Assignment4PitchData.csv (thanks Celine)
 - Also, let's standardize the data, so that they are compatible with our meta-analytic prior (Cohen's d is measured in SDs).
+
 ```{r + standardize the data}
 
 pitch$pitchmean_s = scale(pitch$PitchMean)
@@ -136,32 +136,13 @@ Yes. Study.
 
 How would you implement that? Or, if you don't know how to do bayesian random effects, is there anything we would need to simplify in the dataset?
 
-Step 3: Build a regression model predicting Pitch SD from Diagnosis.
+##Step 3: Build a regression model predicting Pitch SD from Diagnosis.
 - how is the outcome distributed? (likelihood function)
 - how are the parameters of the likelihood distribution distributed? Which predictors should they be conditioned on?
 - use a skeptical/conservative prior for the effects of diagnosis. Remember you'll need to motivate it.
 - Describe and plot the estimates. Evaluate model quality
-```{r + Shitty try with only uniform}
 
-brm_out1 <- brm(
-  pitchSD_s  ~ 1 + diagnosis + (1 | studynr), 
-  prior = set_prior("uniform(0,1000)", class = "b"),
-  data = pitch_s, 
-  cores = 4
-)
-
-brm_out1
-
-
-#What would this say?
-get_prior(pitchSD_s  ~ 1 + diagnosis + (1 | studynr),
-          data = pitch_s)
-
-
-```
-
-
-```{r + Conservative priors}
+```{r + Conservative priors (NOT USED AT ALL)}
 
 brm_mod <- brm(
  pitchSD_s ~ 1 + diagnosis + (1 | studynr), 
@@ -176,10 +157,17 @@ brm_mod <- brm(
 
 
 brm_mod
+plot(brm_mod)
+
+
+
+#Checking the model 
+
 pp_check(brm_mod)
 
+pp_check(brm_mod, nsamples = 100,
+         type = "intervals_grouped", group = 'studynr')
 
-plot(brm_mod)
 
 #How did the sampling go?
 pairs(brm_mod, np = nuts_params(brm_mod))
@@ -209,17 +197,23 @@ waic(brm_mod)
 
 ```
 
-```{r + more parameters}
-
+```{r + Conservative model with more parameters}
+#Chaning diagnosis to a fator 
 pitch_s$diagnosis <- as.factor(pitch_s$diagnosis)
 
+
+#Finding variables to set priors for
+cons.model <- bf(pitchSD_s ~ 1 + diagnosis + (1 | ID_unique) + (1 | trial / studynr))
+get_prior(cons.model, pitch_s)
+
+
+#Making the model
 brm_mod_all <- brm(
- pitchSD_s ~ 1 + diagnosis + (1 | studynr) + (1 | ID_unique) + (1 | trial), 
+ pitchSD_s ~ 1 + diagnosis + (1 | ID_unique) + (1 | trial / studynr), 
   prior = c(
     prior(normal(0, 0.1), class = "Intercept"),
-    prior(cauchy(0, 0.1), class = "sd", coef = "Intercept", group = studynr),
     prior(cauchy(0, 0.1), class = "sd", coef = "Intercept", group = ID_unique),
-    prior(cauchy(0, 0.1), class = "sd", coef = "Intercept", group = trial),
+    prior(cauchy(0, 0.1), class = "sd", coef = "Intercept", group = trial:studynr),
     prior(normal(0, 0.2), class = "b"),
     prior(cauchy(0, 1), class = "sigma")),
   data = pitch_s,
@@ -227,22 +221,16 @@ brm_mod_all <- brm(
   cores = 4
 )
 
+#Looking at the output
+summary(brm_mod_all)
+
+#Checking the model
 plot(brm_mod_all, pars = "^b_")
-brm_mod_all
 pp_check(brm_mod_all)
-#plot(brm_mod_all)
+
 
 #How did the sampling go?
 pairs(brm_mod_all, np = nuts_params(brm_mod_all))
-
-
-
-#Unlike the way rethinking’s extract.samples() yields a list, brms’s posterior_samples() returns a data frame.
-post1 <- posterior_samples(brm_mod_all)
-#str(post1)
-#pairs(post1)
-
-
 
 #Another nice way to customize your pairs plot is with the GGally package.
 p_load(GGally)
@@ -252,28 +240,21 @@ post %>%
   ggpairs()
 
 
+
+#Looking at plot for marginal effects
 brms::marginal_effects(brm_mod_all)
+##Almost complete overlap
 
 ```
-
 
 
 ```{r + Checking the chain}
 
 p_load(bayesplot)
 
-post <- posterior_samples(brm_mod, add_chain = T)
-
-mcmc_trace(post[, c(1:7,9)],  # we need to include column 7 because it contains the chain info 
-           facet_args = list(ncol = 3), 
-           size = .15) +
-  labs(title = "My custom trace plots") + scale_color_discrete() + theme_light()+
-  theme(legend.position = c(.95, .2))
-
-
 post1 <- posterior_samples(brm_mod_all, add_chain = T)
 
-mcmc_trace(post1[, c(1:6,172)],  # we need to include column 7 because it contains the chain info 
+mcmc_trace(post1[, c(1:5,197)],  # we need to include column 7 because it contains the chain info 
            facet_args = list(ncol = 2), 
            size = .15) +
   labs(title = "Our custom trace plots #caterpillar") + scale_color_discrete() + theme_light()
@@ -281,39 +262,56 @@ mcmc_trace(post1[, c(1:6,172)],  # we need to include column 7 because it contai
 ```
 
 
+
 ```{r + inspecting the estimates}
 
-p50 <- 
+p25 <- 
   ggplot(data =  pitch_s, 
          aes(x = diagnosis, y = pitchSD_s)) +
-  geom_abline(intercept = post1[1:50, 1], 
-              slope     = post1[1:50, 2],
+  geom_abline(intercept = post1[1:25, 1], 
+              slope     = post1[1:25, 2],
               size = 1/3, alpha = .3) +
+  
   geom_point(shape = 1, size = 2, color = "royalblue") +
-  coord_cartesian(xlim = range(pitch_s$diagnosis),
-                  ylim = range(pitch_s$pitchSD_s)) +
-  labs(subtitle = "N = 100") +
+  coord_cartesian(ylim = range(pitch_s$pitchSD_s)) +
+  labs(subtitle = "How the models captures the data. Conservative model. N = 25") +
   theme_bw() +
   theme(panel.grid = element_blank())
 
-p50
-
+p25
 
 ```
 
 
-```{r}
+
+
+```{r + making predictions using fitted - NOT USED}
+
+pitchSD_seq <- tibble(PitchSD_s = seq(from = -3, to = 3, length.out = 1178))
 
 # now use `fitted()` to get the model-implied trajectories
 f <- 
-  fitted(brm_mod_all) %>%
+  fitted(brm_mod_all,
+         new_data = pitchSD_seq) %>%
   as_tibble() %>%
   # tack the `pitch_s` data onto the `fitted()` results
-  bind_cols(pitch_s)
+  bind_cols(pitchSD_seq)
+
+ #fitted(brm_mod_all)
+
+pitch_s %>%
+  ggplot(aes(x = pitch_s$pitchSD_s, y = diagnosis))+
+  geom_smooth(data = f,
+              aes(y = Estimate, ymin = Q2.5, ymax = Q97.5),
+              stat = "identity",
+              fill = "grey70", color = "black", alpha = 1, size = 1/2) +
+  #geom_point(color = "navyblue", shape = 1, size = 1.5, alpha = 2/3) +
+  #coord_cartesian(xlim = range(pitch_s$pitchSD_s)) +
+        panel.grid = element_blank()
 
 
 f %>%
-  ggplot(aes(x = diagnosis, y = pitchSD_s)) +
+  ggplot(aes(x = diagnosis, y = pitchSD_seq)) +
   geom_abline(intercept = fixef(brm_mod_all)[1], 
               slope     = fixef(brm_mod_all)[2]) +
   geom_point(shape = 1, size = 2, color = "royalblue") +
@@ -348,8 +346,8 @@ grid.arrange(plot1,plot2)
 
 
 ```
-  
-```{r + plotting}
+
+```{r + plotting prediction as density + NOT USED}
 
 pred.plot1 <- f %>%
   filter(diagnosis == 1) %>%
@@ -378,19 +376,19 @@ grid.arrange(pred.plot1, pred.plot2)
 
 ```
 
-
-Step 4: Now re-run the model with the meta-analytic prior
+##Step 4: Now re-run the model with the meta-analytic prior
 
 - Describe and plot the estimates. Evaluate model quality
 
 ``` {r + metamodel}
+
+#Making the model with meta priors on diagnosis
 meta_prior <- brm(
- pitchSD_s ~ 1 + diagnosis + (1 | studynr) + (1 | ID_unique) + (1 | trial), 
+ pitchSD_s ~ 1 + diagnosis + (1 | ID_unique) + (1 | trial/studynr), 
   prior = c(
     prior(normal(0, 0.1), class = "Intercept"),
-    prior(cauchy(0, 0.1), class = "sd", coef = "Intercept", group = studynr),
     prior(cauchy(0, 0.1), class = "sd", coef = "Intercept", group = ID_unique),
-    prior(cauchy(0, 0.1), class = "sd", coef = "Intercept", group = trial),
+    prior(cauchy(0, 0.1), class = "sd", coef = "Intercept", group = trial:studynr),
     prior(normal(-0.61, 0.29), class = "b"),
     prior(cauchy(0, 1), class = "sigma")),
  iter = 10000, 
@@ -398,15 +396,17 @@ meta_prior <- brm(
   cores = 4
 )
 
+#Estimates
+summary(meta_prior)
 
-meta_prior
+#Checking the model
 pp_check(meta_prior)
-
 #plot(meta_prior)
 
 #How did the sampling go?
 pairs(meta_prior, np = nuts_params(meta_prior))
 
+#Looking at the marginal effects 
 brms::marginal_effects(meta_prior)
 
 ```
@@ -415,16 +415,39 @@ brms::marginal_effects(meta_prior)
 
 meta.post <- posterior_samples(meta_prior, add_chain = T)
 
-mcmc_trace(meta.post[, c(1:6,172)],  # we need to include column 7 because it contains the chain info 
+mcmc_trace(meta.post[, c(1:5,197)],  # we need to include column 7 because it contains the chain info 
            facet_args = list(ncol = 2), 
            size = .15) +
   labs(title = "Our custom trace plots #caterpillar") + scale_color_discrete() + theme_light()
 
 ```
 
+```{r + post plot}
+
+post.m <- posterior_samples(meta_prior, add_chain = T)
+
+p25meta <- 
+  ggplot(data =  pitch_s, 
+         aes(x = diagnosis, y = pitchSD_s)) +
+  geom_abline(intercept = post.m[1:25, 1], 
+              slope     = post.m[1:25, 2],
+              size = 1/3, alpha = .3) +
+  
+  geom_point(shape = 1, size = 2, color = "royalblue") +
+  coord_cartesian(ylim = range(pitch_s$pitchSD_s)) +
+  labs(subtitle = "How the models captures the data. Meta Model. N = 25") +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+p25meta
 
 
-```{r + model estimates from meta model}
+```
+
+
+
+
+```{r + prediciton using fitted NOT USED AT ALL}
 
 # now use `fitted()` to get the model-implied trajectories
  mm <-  fitted(meta_prior) %>%
@@ -433,7 +456,7 @@ mcmc_trace(meta.post[, c(1:6,172)],  # we need to include column 7 because it co
   bind_cols(pitch_s)
 ```
 
-```{r + plotting meta model }
+```{r + plotting meta model density NOT USED }
 
 
 pred.plot.mm1 <- mm %>%
@@ -463,13 +486,32 @@ grid.arrange(pred.plot.mm1, pred.plot.mm2)
 ```
 
 
-Step 5: Compare the models
+##Step 5: Compare the models
 - Plot priors and posteriors of the diagnosis effect in both models
 - Compare posteriors between the two models
 - Compare their relative distance from truth (WAIC)
 - Discuss how they compare and whether any of them is best.
 
-```{r + plotting the models against each other}
+```{r + plotting the models against each other pp checks}
+p_load(cowplot)
+
+p1 <- pp_check(brm_mod_all) +
+  facet_wrap(~pitch$diagnosis)+
+   ggtitle("PPC for conservative model")
+
+p1
+
+p2 <- pp_check(meta_prior) +
+  facet_wrap(~pitch$diagnosis)+
+  ggtitle("PPC for metaanalytic priors")
+
+p2
+
+plot_grid(p1, p2)
+
+```
+
+```{r + NOT USED COMPARISON}
 plot.brm.all <- f %>%
   ggplot(aes(x = Estimate)) +
   stat_function(fun = dnorm, args = list(mean = 0, sd = 0.2), linetype = 2) +  
@@ -501,6 +543,7 @@ grid.arrange(plot.brm.all, plot.meta.prior)
 brm_mod_all <- add_criterion(brm_mod_all, "waic")
 meta_prior <- add_criterion(meta_prior, "waic")
 
+
 # compare the WAIC estimates
 w <- loo_compare(brm_mod_all, meta_prior,
                  criterion = "waic")
@@ -508,6 +551,7 @@ w <- loo_compare(brm_mod_all, meta_prior,
 print(w, simplify = F)
 
 
+#Calculating weights
 model_weights(brm_mod_all, meta_prior, 
               weights = "waic") %>% 
   round(digits = 2)
@@ -516,25 +560,20 @@ model_weights(brm_mod_all, meta_prior,
 ```
 
 
+##Step 6: Prepare a nice write up of the analysis and answer the questions at the top.
 
-Step 6: Prepare a nice write up of the analysis and answer the questions at the top.
-
-
-
+YES!
 
 
 
 
-
-
-
-
-
-
-
+##Optional 
 
 Optional step 7: how skeptical should a prior be?
 - Try different levels of skepticism and compare them using WAIC.
+
+We tried being very, very skeptical. As if our model was supposed to convince someone who did not believe in this effect at all. 
+
 
 Optional step 8: Include other predictors
 - Do age, gender and education improve the model?
